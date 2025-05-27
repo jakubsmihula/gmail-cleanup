@@ -1,4 +1,4 @@
-require('dotenv').config(); // Load .env file
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -17,11 +17,18 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 const PORT = process.env.PORT || 4000;
 
 // === MIDDLEWARE ===
-app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+app.use(cors({
+    origin: FRONTEND_URL,
+    credentials: true,
+}));
+
 app.use(cookieSession({
     name: 'session',
     keys: [SESSION_SECRET],
-    maxAge: 24 * 60 * 60 * 1000 // 1 day
+    maxAge: 24 * 60 * 60 * 1000, // 1 day
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax',
 }));
 
 // === OAUTH CLIENT ===
@@ -33,23 +40,23 @@ const oauth2Client = new google.auth.OAuth2(
 
 // === ROUTES ===
 
-// Redirect to Google OAuth
+// Start Google OAuth login flow
 app.get('/auth/google', (req, res) => {
     const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         prompt: 'consent',
-        scope: SCOPES
+        scope: SCOPES,
     });
     res.redirect(url);
 });
 
-// OAuth2 callback
+// OAuth2 callback - handle Google response and store tokens in session
 app.get('/auth/google/callback', async (req, res) => {
     const code = req.query.code;
 
     try {
         const { tokens } = await oauth2Client.getToken(code);
-        req.session.tokens = tokens; // Save to session
+        req.session.tokens = tokens;
         res.redirect(`${FRONTEND_URL}/mails`);
     } catch (err) {
         console.error('OAuth error:', err);
@@ -57,19 +64,42 @@ app.get('/auth/google/callback', async (req, res) => {
     }
 });
 
-// Get Gmail emails
+// Logout route - clear session
+app.get('/auth/logout', (req, res) => {
+    req.session = null;
+    res.redirect(FRONTEND_URL);
+});
+
+// Get emails from Gmail API
 app.get('/api/emails', async (req, res) => {
     if (!req.session.tokens) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
 
     oauth2Client.setCredentials(req.session.tokens);
+
+    // Refresh token if expired or missing expiry
+    if (
+        !oauth2Client.credentials.expiry_date ||
+        oauth2Client.credentials.expiry_date <= Date.now()
+    ) {
+        try {
+            const newTokensResponse = await oauth2Client.refreshAccessToken();
+            const newTokens = newTokensResponse.credentials;
+            oauth2Client.setCredentials(newTokens);
+            req.session.tokens = newTokens; // Update session with refreshed tokens
+        } catch (refreshError) {
+            console.error('Error refreshing access token:', refreshError);
+            return res.status(401).json({ error: 'Session expired, please login again' });
+        }
+    }
+
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
     try {
         const { data } = await gmail.users.messages.list({
             userId: 'me',
-            maxResults: 10
+            maxResults: 10,
         });
 
         const messages = data.messages || [];
@@ -81,14 +111,13 @@ app.get('/api/emails', async (req, res) => {
             });
 
             const headers = msg.data.payload.headers;
-            const getHeader = (name) =>
-                headers.find(h => h.name === name)?.value || '';
+            const getHeader = (name) => headers.find(h => h.name === name)?.value || '';
 
             return {
                 id,
                 subject: getHeader('Subject'),
                 from: getHeader('From'),
-                date: getHeader('Date')
+                date: getHeader('Date'),
             };
         }));
 
