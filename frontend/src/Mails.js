@@ -1,75 +1,89 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 
 export default function Mails() {
     const [emails, setEmails] = useState([]);
+    const [nextPageToken, setNextPageToken] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const loadingRef = useRef(false); // prevent duplicate calls
 
-    const loginWithGoogle = () => {
+    const login = () => {
         window.location.href = 'http://localhost:4000/auth/google';
     };
 
-    useEffect(() => {
-        const fetchEmails = async () => {
-            try {
-                const res = await fetch('http://localhost:4000/api/emails', {
-                    credentials: 'include'
-                });
+    const fetchEmails = (pageToken = null) => {
+        if (loadingRef.current) return;
+        loadingRef.current = true;
+        setLoading(true);
 
-                if (res.status === 401) {
-                    throw new Error('Not authenticated');
-                }
+        let url = `http://localhost:4000/api/emails?maxResults=50`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
 
-                const data = await res.json();
-                setEmails(data);
-            } catch (err) {
-                setError(err.message);
-            } finally {
+        fetch(url, { credentials: 'include' })
+            .then(res => {
+                if (res.status === 401) throw new Error('Not authenticated');
+                return res.json();
+            })
+            .then(data => {
+                setEmails(prev => [...prev, ...data.emails]);
+                setNextPageToken(data.nextPageToken);
                 setLoading(false);
-            }
-        };
+                loadingRef.current = false;
+            })
+            .catch(err => {
+                setError(err.message);
+                setLoading(false);
+                loadingRef.current = false;
+            });
+    };
 
+    useEffect(() => {
         fetchEmails();
     }, []);
 
-    if (loading) {
-        return <p>Loading emails...</p>;
-    }
+    useEffect(() => {
+        const handleScroll = () => {
+            if (
+                window.innerHeight + document.documentElement.scrollTop
+                >= document.documentElement.offsetHeight - 200
+                && nextPageToken
+            ) {
+                fetchEmails(nextPageToken);
+            }
+        };
 
-    if (error) {
-        return (
-            <div>
-                <p style={{ color: 'red' }}>{error}</p>
-                <button onClick={loginWithGoogle}>Login with Google</button>
-            </div>
-        );
-    }
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [nextPageToken]);
 
-    if (!emails.length) {
-        return <p>No emails found.</p>;
-    }
+    if (loading && emails.length === 0) return <p>Loading emails...</p>;
+
+    if (error) return (
+        <div>
+            <p>{error}</p>
+            <button onClick={login}>Login with Google</button>
+        </div>
+    );
 
     return (
         <div>
             <h2>Your Emails</h2>
-            <table border="1" cellPadding="5" cellSpacing="0">
+            <table border="1" cellPadding="5">
                 <thead>
-                <tr>
-                    <th>From</th>
-                    <th>Subject</th>
-                    <th>Date</th>
-                </tr>
+                <tr><th>From</th><th>Subject</th><th>Date</th></tr>
                 </thead>
                 <tbody>
-                {emails.map(({ id, from, subject, date }) => (
-                    <tr key={id}>
-                        <td>{from}</td>
-                        <td>{subject}</td>
-                        <td>{date}</td>
+                {emails.map(email => (
+                    <tr key={email.id}>
+                        <td>{email.from}</td>
+                        <td>{email.subject}</td>
+                        <td>{email.date}</td>
                     </tr>
                 ))}
                 </tbody>
             </table>
+            {loading && <p>Loading more emails...</p>}
+            {!nextPageToken && !loading && <p>No more emails</p>}
         </div>
     );
 }

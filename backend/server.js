@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: '/Users/jakubsmihula/WebstormProjects/gmail-cleanup-git/backend/.env' });
 
 const express = require('express');
 const cors = require('cors');
@@ -16,6 +16,12 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 const PORT = process.env.PORT || 4000;
 
+// === VALIDATE ESSENTIAL ENV VARS ===
+if (!SESSION_SECRET) {
+    console.error('Error: SESSION_SECRET environment variable is not set.');
+    process.exit(1);
+}
+
 // === MIDDLEWARE ===
 app.use(cors({
     origin: FRONTEND_URL,
@@ -24,7 +30,7 @@ app.use(cors({
 
 app.use(cookieSession({
     name: 'session',
-    keys: [SESSION_SECRET],
+    keys: [SESSION_SECRET],  // safe now because SESSION_SECRET is validated
     maxAge: 24 * 60 * 60 * 1000, // 1 day
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -78,52 +84,44 @@ app.get('/api/emails', async (req, res) => {
 
     oauth2Client.setCredentials(req.session.tokens);
 
-    // Refresh token if expired or missing expiry
-    if (
-        !oauth2Client.credentials.expiry_date ||
-        oauth2Client.credentials.expiry_date <= Date.now()
-    ) {
-        try {
-            const newTokensResponse = await oauth2Client.refreshAccessToken();
-            const newTokens = newTokensResponse.credentials;
-            oauth2Client.setCredentials(newTokens);
-            req.session.tokens = newTokens; // Update session with refreshed tokens
-        } catch (refreshError) {
-            console.error('Error refreshing access token:', refreshError);
-            return res.status(401).json({ error: 'Session expired, please login again' });
-        }
-    }
-
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const maxResults = parseInt(req.query.maxResults) || 20;
+    const pageToken = req.query.pageToken;
 
     try {
-        const { data } = await gmail.users.messages.list({
+        const response = await gmail.users.messages.list({
             userId: 'me',
-            maxResults: 10,
+            maxResults,
+            pageToken
         });
 
-        const messages = data.messages || [];
-        const emails = await Promise.all(messages.map(async ({ id }) => {
-            const msg = await gmail.users.messages.get({
-                userId: 'me',
-                id,
-                format: 'full',
-            });
+        const messages = response.data.messages || [];
+        const nextPageToken = response.data.nextPageToken;
 
-            const headers = msg.data.payload.headers;
-            const getHeader = (name) => headers.find(h => h.name === name)?.value || '';
+        const emails = await Promise.all(
+            messages.map(async (msg) => {
+                const message = await gmail.users.messages.get({
+                    userId: 'me',
+                    id: msg.id,
+                    format: 'metadata',
+                    metadataHeaders: ['Subject', 'From', 'Date']
+                });
 
-            return {
-                id,
-                subject: getHeader('Subject'),
-                from: getHeader('From'),
-                date: getHeader('Date'),
-            };
-        }));
+                const headers = message.data.payload.headers;
+                const getHeader = (name) => headers.find(h => h.name === name)?.value || '';
 
-        res.json(emails);
+                return {
+                    id: msg.id,
+                    subject: getHeader('Subject'),
+                    from: getHeader('From'),
+                    date: getHeader('Date')
+                };
+            })
+        );
+
+        res.json({ emails, nextPageToken });
     } catch (err) {
-        console.error('Failed to fetch emails:', err);
+        console.error(err);
         res.status(500).json({ error: 'Failed to fetch emails' });
     }
 });

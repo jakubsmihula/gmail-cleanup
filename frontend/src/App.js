@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import Mails from './Mails';
 
 function Home() {
-  return <h1>Hello, welcome to the app!</h1>;
+  return <h1>Hello, welcome to the app 2!</h1>;
 }
 
 function App() {
