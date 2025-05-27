@@ -1,3 +1,5 @@
+require('dotenv').config(); // Load .env file
+
 const express = require('express');
 const cors = require('cors');
 const { google } = require('googleapis');
@@ -6,13 +8,13 @@ const cookieSession = require('cookie-session');
 const app = express();
 
 // === CONFIG ===
-const CLIENT_ID = '605968817355-rf8726lmlpmkouebas3q2gvaqk4m4t85.apps.googleusercontent.com';
-const CLIENT_SECRET = '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';
-const REDIRECT_URI = 'http://localhost:4000/auth/google/callback';
-const SESSION_SECRET = 'a9c4d3f2e3b9e4f871ae9cfa7bdf36b2cfae8a2e1d74cd3f64b9e3f2e7a4b9d3';
-const FRONTEND_URL = 'http://localhost:3000';
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:4000/auth/google/callback';
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 // === MIDDLEWARE ===
 app.use(cors({ origin: FRONTEND_URL, credentials: true }));
