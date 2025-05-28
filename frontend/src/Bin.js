@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { fetchEmailsFromApi } from './helpers/fetch-emails.js'; // adjust path
+import { fetchEmailsFromApi } from "./helpers/fetch-emails";
 
-
-export default function Mails() {
+export default function Bin() {
     const [emails, setEmails] = useState([]);
     const [nextPageToken, setNextPageToken] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -18,7 +17,11 @@ export default function Mails() {
         loadingRef.current = true;
         setLoading(true);
 
-        fetchEmailsFromApi(pageToken, {})
+        const params = {
+            trashed : true,
+        }
+
+        fetchEmailsFromApi(pageToken, params)
             .then(data => {
                 setEmails(prev => [...prev, ...data.emails]);
                 setNextPageToken(data.nextPageToken);
@@ -30,8 +33,7 @@ export default function Mails() {
                 setLoading(false);
                 loadingRef.current = false;
             });
-    }
-
+    };
 
 
     useEffect(() => {
@@ -64,7 +66,7 @@ export default function Mails() {
 
     return (
         <div>
-            <h2>Your Emails</h2>
+            <h2>Your Trashed Emails</h2>
             <table border="1" cellPadding="5">
                 <thead>
                 <tr><th>From</th><th>Subject</th><th>Date</th></tr>

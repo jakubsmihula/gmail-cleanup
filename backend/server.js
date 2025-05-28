@@ -77,22 +77,44 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // Get emails from Gmail API
+// In your backend /api/emails route handler:
+
 app.get('/api/emails', async (req, res) => {
     if (!req.session.tokens) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
 
     oauth2Client.setCredentials(req.session.tokens);
-
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
     const maxResults = parseInt(req.query.maxResults) || 20;
     const pageToken = req.query.pageToken;
+    const labelIds = req.query.labelIds ? req.query.labelIds.split(',') : undefined;
+    const includeSpamTrash = req.query.includeSpamTrash === 'true';
+
+    let q = req.query.q || '';
+
+    // Handle dateFrom and dateTo using Gmail's query syntax
+    const { dateFrom, dateTo } = req.query;
+
+    if (dateFrom) {
+        const after = Math.floor(new Date(dateFrom).getTime() / 1000);
+        q += ` after:${after}`;
+    }
+
+    if (dateTo) {
+        const before = Math.floor(new Date(dateTo).getTime() / 1000);
+        q += ` before:${before}`;
+    }
 
     try {
         const response = await gmail.users.messages.list({
             userId: 'me',
             maxResults,
-            pageToken
+            pageToken,
+            labelIds,
+            q: q.trim(),
+            includeSpamTrash
         });
 
         const messages = response.data.messages || [];
@@ -125,6 +147,8 @@ app.get('/api/emails', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch emails' });
     }
 });
+
+
 
 // === START SERVER ===
 app.listen(PORT, () => {
