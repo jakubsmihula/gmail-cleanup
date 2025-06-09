@@ -13,7 +13,7 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:4000/auth/google/callback';
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
+const SCOPES = ['https://mail.google.com'];
 const PORT = process.env.PORT || 4000;
 
 // === VALIDATE ESSENTIAL ENV VARS ===
@@ -148,6 +148,78 @@ app.get('/api/emails', async (req, res) => {
     }
 });
 
+app.post('/api/emails/delete', express.json(), async (req, res) => {
+    if (!req.session.tokens) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const ids  = req.body.emailIds;
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'No email IDs provided' });
+    }
+
+    oauth2Client.setCredentials(req.session.tokens);
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    try {
+        await Promise.all(ids.map(id =>
+            gmail.users.messages.delete({
+                userId: 'me',
+                id
+            })
+        ));
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Failed to delete emails:', err);
+        res.status(500).json({ error: 'Failed to delete emails' });
+    }
+});
+
+app.get('/auth/logout', (req, res) => {
+    req.session = null;
+    res.redirect(FRONTEND_URL);
+});
+
+app.get('/api/auth/status', (req, res) => {
+    if (req.session.tokens) {
+        res.json({ loggedIn: true });
+    } else {
+        res.json({ loggedIn: false });
+    }
+});
+
+app.get('/api/emails/summary', async (req, res) => {
+    if (!req.session.tokens) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    oauth2Client.setCredentials(req.session.tokens);
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    try {
+        const labelResponse = await gmail.users.labels.list({
+            userId: 'me'
+        });
+
+        const labels = labelResponse.data.labels;
+
+        const unreadLabel = labels.find(l => l.id === 'UNREAD');
+
+        if (!unreadLabel) {
+            return res.status(500).json({ error: 'Required labels not found' });
+        }
+
+        const unread = await gmail.users.labels.get({ userId: 'me', id: unreadLabel.id });
+
+        res.json({
+            unreadEmails: unread.data.messagesUnread
+        });
+    } catch (err) {
+        console.error('Failed to fetch email summary:', err);
+        res.status(500).json({ error: 'Failed to fetch email summary' });
+    }
+});
 
 
 // === START SERVER ===
